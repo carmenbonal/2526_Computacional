@@ -2,7 +2,7 @@ import numpy as np
 
 # --- Parámetros de la simulación ---
 N = 32              # Tamaño del retículo (N x N) 
-T = 2.27            # Temperatura (T_c aprox 2.269) 
+T = 2.7          # Temperatura (T_c aprox 2.269) 
 pasos_mc = 1000     # Pasos Monte Carlo totales 
 frecuencia_guardado = 10 # Guardar configuración cada X pasos
 fichero_salida = "ising_data.dat"
