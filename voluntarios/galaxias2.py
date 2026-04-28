@@ -108,12 +108,7 @@ def main():
         vel[i] = direccion * v_mag
         vel[i] += np.random.normal(0, 0.05, 2)
 
-    acc = get_acc(
-        pos,
-        M_SISTEMA,
-        M_AGUJERO_NEGRO,
-        DIST_INTERACCION
-    )
+    acc = get_acc(pos, M_SISTEMA, M_AGUJERO_NEGRO, DIST_INTERACCION)
 
     absorciones = 0
     historial_inercia = []
@@ -170,18 +165,9 @@ def main():
                 vel[i] += np.random.normal(0, 0.2, 2)
                 v_half[i] = vel[i]
 
-        resolver_colisiones(
-            pos,
-            v_half,
-            R_COLISION
-        )
+        resolver_colisiones(pos, v_half, R_COLISION)
 
-        acc_new = get_acc(
-            pos,
-            M_SISTEMA,
-            M_AGUJERO_NEGRO,
-            DIST_INTERACCION
-        )
+        acc_new = get_acc (pos, M_SISTEMA, M_AGUJERO_NEGRO, DIST_INTERACCION)
 
         vel = v_half + acc_new * DT / 2.0
         acc = acc_new
@@ -190,7 +176,7 @@ def main():
         # VISUALIZACIÓN DE TRAYECTORIAS (Guardado de fotogramas)
         # -------------------------------------------------
 
-        if step % 40 == 0: 
+        if step % 40 == 0:  # Guardar fotograma cada 40 pasos
 
             elementos_fotograma = []
 
