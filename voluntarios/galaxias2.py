@@ -145,16 +145,20 @@ def main():
         pos_save[:, :, idx] = pos
 
         # -------------------------------------------------
-        # ABSORCIÓN Y REGENERACIÓN
+        # GESTIÓN DE FRONTERAS (ABSORCIÓN Y ESCAPE)
         # -------------------------------------------------
 
         for i in range(N_SISTEMAS):
             r_mag = np.linalg.norm(pos[i])
 
-            if r_mag < R_ABSORCION:
-                if step >= PASOS_ESTABILIZACION:
+            # Si la partícula cae al agujero negro o escapa de la frontera
+            if r_mag < R_ABSORCION or r_mag > R_FRONTERA:
+                
+                # Contabilizar absorción solo si cruzó el límite interior
+                if step >= PASOS_ESTABILIZACION and r_mag < R_ABSORCION:
                     absorciones += 1
 
+                # Regenerar la partícula en la frontera
                 theta = np.random.uniform(0, 2 * np.pi)
                 pos[i] = R_FRONTERA * np.array([np.cos(theta), np.sin(theta)])
                 v_circular = np.sqrt(G * M_AGUJERO_NEGRO / R_FRONTERA)
@@ -186,7 +190,7 @@ def main():
         # VISUALIZACIÓN DE TRAYECTORIAS (Guardado de fotogramas)
         # -------------------------------------------------
 
-        if step % 40 == 0:  # Reducida la frecuencia para no generar vídeos excesivamente pesados
+        if step % 40 == 0: 
 
             elementos_fotograma = []
 
@@ -230,7 +234,7 @@ def main():
     print("Compilando animación...")
     ani = animation.ArtistAnimation(fig, fotogramas, interval=50, blit=True)
     ani.save("simulacion.gif", writer="pillow")
-    plt.close(fig) # Evita que se muestre una figura vacía al final
+    plt.close(fig) 
 
     # -------------------------------------------------
     # RESULTADOS
