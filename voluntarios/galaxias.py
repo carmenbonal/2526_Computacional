@@ -1,158 +1,379 @@
-import numpy as np # Para el cálculo científico
-import matplotlib.pyplot as plt # Para visualización
+import numpy as np
+import matplotlib.pyplot as plt
 
-# Dudas: como al ser absorbidos los sistemas, y luego son todos generados justo en la frontera, 
-# si la tasa de nacimiento es mayor que la tasa de muerte se quedan orbitando cerca de la frontera, 
-# lo que genera un pico en la densidad radial. Sería mejor que, en vez de que nazcan todos en R=25,
-# nacieran en un rango entre R=20 y R=25, para evitar esa acumulación?
+# =============================================================================
+# PARÁMETROS FÍSICOS
+# =============================================================================
 
+N_SISTEMAS = 80
 
+G = 1.0
 
-# --- Configuración del Modelo  ---
-N_SISTEMAS = 100    #Cantidad de sistemas solares simulados
-G = 1.0             # Constante gravitacional en unidades naturales
-M_BH = 5000.0        # Masa del agujero negro central
-M_SYS = 1.0          # Masa de cada sistema solar
-DT = 0.01               # Paso de tiempo
-PASOS_RELAJACION = 5000  # Tiempo para alcanzar el estado estacionario
-PASOS_MEDICION = 5000    # Mediciones en estado estacionario
-R_MAX = 25.0           # Radio máximo de la simulación
-R_ABS = 1          # Radio de absorción del agujero negro
+M_AGUJERO_NEGRO = 2000.0
+M_SISTEMA = 1.0
 
-# Añadimos un tiempo de relajación. Esto se debe a que los sistemas solares
-# necesitan tiempo para alcanzar el estado estacionario. Durante la relajación.
-# el sistema es intestable y los observables oscilan bruscamente.
+R_COLISION = 0.06
+R_ABSORCION = 0.8
+R_FRONTERA = 8.0
+DIST_INTERACCION = 3.0
 
-# --- Inicialización ---
-pos = np.random.uniform(-R_MAX/2, R_MAX/2, (N_SISTEMAS, 2))
-vel = np.zeros_like(pos)
+DT = 0.005
+SOFTENING = 0.1
 
-# Damos velocidad inicial para que no caigan directamente en el agujero negro, 
-# usando la fórmula de v obtenida de igualar la fuerza centrípeta y la gravitatoria
-# (órbita circular al menos al principio para q no colapse directamente). La excentricidad
-# se da de forma natural con el tiempo con la interacción gravitatoria. 
-# Las posiciones iniciales también se dan de forma aleatoria.
-for i in range(N_SISTEMAS):
-    r_mag = np.linalg.norm(pos[i])
-    v_mag = np.sqrt(G * M_BH / r_mag)
-    vel[i] = np.array([-pos[i, 1], pos[i, 0]]) / r_mag * v_mag
-    # [-y, x] es un vector perpendicular, que le da velocidad tangencial al
-    # cuerpo para que sea capaz de orbitar. Al dividir por r_mag unitarizamos
-    # el vector, y al multiplicar por v_mag le damos la v justa para mantener
-    # una órbita circular. 
+PASOS_ESTABILIZACION = 10000
+PASOS_MEDICION = 10000
+
+# Longitud de la cola de trayectorias
+COLA = 200
 
 
-# Calculo aceleración con la ley de Newton en cada instante. 
-def calcular_aceleracion(p):
-    acc = np.zeros_like(p)
-    # Gravedad central (Agujero Negro)
-    dist_sq = np.sum(p**2, axis=1).reshape(-1, 1)
-    dist = np.sqrt(dist_sq)
-    acc -= G * M_BH * p / (dist**3)
-    
-    # Interacción entre sistemas cercanos: Solo calculamos la gravedad 
-    # entre 2 sistemas si están a una distancia menor a 3 unidades.
-    for i in range(len(p)):
-        for j in range(i + 1, len(p)):
-            diff = p[j] - p[i]
-            d_ij = np.linalg.norm(diff)
-            if d_ij < 3.0: # Umbral de cercanía
-                f = G * M_SYS * diff / (d_ij**3)
-                acc[i] += f
-                acc[j] -= f
+# =============================================================================
+# ACELERACIONES
+# =============================================================================
+
+def get_acc(pos, mass, m_bh, r_limit):
+
+    acc = np.zeros_like(pos)
+
+    r_mag_bh = np.linalg.norm(pos, axis=1).reshape(-1, 1)
+
+    # Gravedad del agujero negro
+    acc -= G * m_bh * pos / (r_mag_bh**3 + SOFTENING)
+
+    # Interacciones locales
+    for i in range(len(pos)):
+        for j in range(i + 1, len(pos)):
+
+            diff = pos[j] - pos[i]
+            dist = np.linalg.norm(diff)
+
+            if dist < r_limit and dist > 0:
+
+                force = G * mass * diff / (dist**3 + SOFTENING)
+
+                acc[i] += force
+                acc[j] -= force
+
     return acc
 
-# --- Contenedores para el análisis ---
-historial_inercia = []
-radios_estacionarios = []
-absorciones = 0
 
-# --- Bucle de Evolución (Verlet en Velocidad) ---
-total_pasos = PASOS_RELAJACION + PASOS_MEDICION
+# =============================================================================
+# COLISIONES ELÁSTICAS
+# =============================================================================
 
-for paso in range(total_pasos):
-    a_t = calcular_aceleracion(pos)
-    
-    # Actualización con algoritmo Verlet
-    pos_nueva = pos + DT * vel + 0.5 * (DT**2) * a_t
-    w = vel + 0.5 * DT * a_t
-    a_t_h = calcular_aceleracion(pos_nueva)
-    vel_nueva = w + 0.5 * DT * a_t_h
-    
-    pos, vel = pos_nueva, vel_nueva
+def resolver_colisiones(pos, vel, r_col):
 
-    # Gestión de absorción y regeneración: la masa que entra debe ser igual a 
-    # la que sale para mantener el número constante de sistemas solares.    
+    for i in range(len(pos)):
+        for j in range(i + 1, len(pos)):
+
+            diff = pos[j] - pos[i]
+            dist = np.linalg.norm(diff)
+
+            if dist < 2 * r_col and dist > 0:
+
+                normal = diff / dist
+
+                rel_vel = vel[j] - vel[i]
+
+                v_impulse = np.dot(rel_vel, normal)
+
+                if v_impulse < 0:
+
+                    vel[i] += v_impulse * normal
+                    vel[j] -= v_impulse * normal
+
+
+# =============================================================================
+# PROGRAMA PRINCIPAL
+# =============================================================================
+
+def main():
+
+    # -------------------------------------------------
+    # INICIALIZACIÓN
+    # -------------------------------------------------
+
+    pos = np.random.uniform(
+        -R_FRONTERA * 0.6,
+        R_FRONTERA * 0.6,
+        (N_SISTEMAS, 2)
+    )
+
+    vel = np.zeros_like(pos)
+
+    # Velocidades iniciales
     for i in range(N_SISTEMAS):
-        r_i = np.linalg.norm(pos[i])
-        # Si el sistema solar se acerca demasiado al agujero o se aleja demasiado, 
-        # lo consideramos absorbido o perdido.
-        if r_i < R_ABS or r_i > R_MAX * 1.5:
-            if r_i < R_ABS: absorciones += 1
-            # Regenerar en la frontera con órbita cerrada
-            ang = np.random.uniform(0, 2*np.pi)
-            pos[i] = np.array([np.cos(ang), np.sin(ang)]) * R_MAX
-            v_orb = np.sqrt(G * M_BH / R_MAX)
-            vel[i] = np.array([-np.sin(ang), np.cos(ang)]) * v_orb
 
-    # Análisis post-relajación 
-    inercia = np.sum(M_SYS * np.sum(pos**2, axis=1))
-    historial_inercia.append(inercia)
-    
-    if paso > PASOS_RELAJACION:
-        radios_estacionarios.extend(np.linalg.norm(pos, axis=1))
+        r = np.linalg.norm(pos[i])
 
-# --- Resultados del Análisis ---
-# 1. Flujo medio de masa: cuanto material es absorbido por el agujero negro por unidad de tiempo en estado estacionario.
-flujo = (absorciones * M_SYS) / (total_pasos * DT)
+        if r == 0:
+            r = 1e-6
 
-# 2. Densidad radial media 
-# Cuento cuántos sistemas solares hay en cada anillo radial y divido por
-#  el área de ese anillo para obtener la densidad.
-counts, bins = np.histogram(radios_estacionarios, bins=30, range=(0, R_MAX))
-areas = np.pi * (bins[1:]**2 - bins[:-1]**2)
-densidad_radial = (counts / (PASOS_MEDICION)) / areas
+        v_circular = np.sqrt(G * M_AGUJERO_NEGRO / r)
 
-# --- Visualización ---
-plt.figure(figsize=(12, 5))
+        factor = np.random.uniform(0.4, 0.8)
+
+        v_mag = v_circular * factor
+
+        direccion = np.array([-pos[i, 1], pos[i, 0]]) / r
+
+        vel[i] = direccion * v_mag
+
+        vel[i] += np.random.normal(0, 0.05, 2)
+
+    acc = get_acc(
+        pos,
+        M_SISTEMA,
+        M_AGUJERO_NEGRO,
+        DIST_INTERACCION
+    )
+
+    absorciones = 0
+
+    historial_inercia = []
+    historial_densidad = []
+
+    total_steps = PASOS_ESTABILIZACION + PASOS_MEDICION
+
+    # Buffer circular para trayectorias
+    pos_save = np.zeros((N_SISTEMAS, 2, COLA))
+
+    print("Fase 1: Alcanzando estado estacionario...")
+
+    plt.figure(figsize=(6, 6))
+
+    # -------------------------------------------------
+    # BUCLE TEMPORAL (VERLET)
+    # -------------------------------------------------
+
+    for step in range(total_steps):
+
+        # Kick
+        v_half = vel + acc * DT / 2.0
+
+        # Drift
+        pos += v_half * DT
+
+        # Guardar posición en buffer circular
+        idx = step % COLA
+        pos_save[:, :, idx] = pos
+
+        # -------------------------------------------------
+        # ABSORCIÓN Y REGENERACIÓN
+        # -------------------------------------------------
+
+        for i in range(N_SISTEMAS):
+
+            r_mag = np.linalg.norm(pos[i])
+
+            if r_mag < R_ABSORCION:
+
+                if step >= PASOS_ESTABILIZACION:
+                    absorciones += 1
+
+                theta = np.random.uniform(0, 2 * np.pi)
+
+                pos[i] = R_FRONTERA * np.array([
+                    np.cos(theta),
+                    np.sin(theta)
+                ])
+
+                v_circular = np.sqrt(
+                    G * M_AGUJERO_NEGRO / R_FRONTERA
+                )
+
+                factor = np.random.uniform(0.4, 0.8)
+
+                v_reg = v_circular * factor
+
+                direccion = np.array([
+                    -pos[i, 1],
+                    pos[i, 0]
+                ]) / R_FRONTERA
+
+                vel[i] = direccion * v_reg
+
+                vel[i] += np.random.normal(0, 0.2, 2)
+
+                v_half[i] = vel[i]
+
+        resolver_colisiones(
+            pos,
+            vel,
+            R_COLISION
+        )
+
+        acc_new = get_acc(
+            pos,
+            M_SISTEMA,
+            M_AGUJERO_NEGRO,
+            DIST_INTERACCION
+        )
+
+        vel = v_half + acc_new * DT / 2.0
+
+        acc = acc_new
+
+        # -------------------------------------------------
+        # VISUALIZACIÓN DE TRAYECTORIAS
+        # -------------------------------------------------
+
+        if step % 20 == 0:
+
+            plt.cla()
+
+            for i in range(N_SISTEMAS):
+
+                if step < COLA:
+                    trayectoria = pos_save[i, :, :step]
+                else:
+                    trayectoria = np.concatenate((
+                        pos_save[i, :, idx:],
+                        pos_save[i, :, :idx]
+                    ), axis=1)
+
+                plt.scatter(\n                    trayectoria[0],\n                    trayectoria[1],\n                    s=3\n                )
+
+            # Posiciones actuales
+            plt.scatter(
+                pos[:, 0],
+                pos[:, 1],
+                s=10
+            )
+
+            # Agujero negro central
+            plt.scatter(
+                0,
+                0,
+                s=80
+            )
+
+            plt.xlim(-R_FRONTERA, R_FRONTERA)
+            plt.ylim(-R_FRONTERA, R_FRONTERA)
+
+            plt.gca().set_aspect("equal")
+
+            plt.pause(0.001)
+
+        # -------------------------------------------------
+        # MEDICIONES
+        # -------------------------------------------------
+
+        if step >= PASOS_ESTABILIZACION:
+
+            I = np.sum(
+                M_SISTEMA *
+                np.sum(pos**2, axis=1)
+            )
+
+            historial_inercia.append(I)
+
+            radios = np.linalg.norm(pos, axis=1)
+
+            counts, bins = np.histogram(
+                radios,
+                bins=20,
+                range=(0, R_FRONTERA)
+            )
+
+            areas = np.pi * (
+                bins[1:]**2 - bins[:-1]**2
+            )
+
+            densidad = counts * M_SISTEMA / areas
+
+            historial_densidad.append(densidad)
+
+    # -------------------------------------------------
+    # RESULTADOS
+    # -------------------------------------------------
+
+    tiempo_total = PASOS_MEDICION * DT
+
+    flujo_masa = (
+        absorciones *
+        M_SISTEMA
+    ) / tiempo_total
+
+    densidad_media = np.mean(
+        historial_densidad,
+        axis=0
+    )
+
+    inercia_media = np.mean(
+        historial_inercia
+    )
+
+    bin_centers = (
+        bins[:-1] + bins[1:]
+    ) / 2
+
+    print("\n--- RESULTADOS ---")
+
+    print(
+        "Absorciones totales:",
+        absorciones
+    )
+
+    print(
+        "Tiempo total:",
+        tiempo_total
+    )
+
+    print(
+        "Flujo medio de masa:",
+        flujo_masa
+    )
+
+    print(
+        "Momento de inercia medio:",
+        inercia_media
+    )
+
+    # -------------------------------------------------
+    # GRÁFICAS FINALES
+    # -------------------------------------------------
+
+    fig, (ax1, ax2) = plt.subplots(
+        1,
+        2,
+        figsize=(12, 5)
+    )
+
+    ax1.plot(
+        bin_centers,
+        densidad_media
+    )
+
+    ax1.set_title(
+        "Distribución radial de densidad"
+    )
+
+    ax1.set_xlabel("Radio")
+    ax1.set_ylabel("Densidad")
+
+    ax2.plot(
+        historial_inercia
+    )
+
+    ax2.set_title(
+        "Evolución del momento de inercia"
+    )
+
+    ax2.set_xlabel(
+        "Pasos de medición"
+    )
+
+    ax2.set_ylabel("I")
+
+    plt.tight_layout()
+
+    plt.savefig(
+        "analisis_galaxia.png"
+    )
+
+    plt.show()
 
 
-# Si el sistema es estable, el valor del momento de inercia no debería crecer ni
-# disminuir sistemáticamente. Si esto ocurre es que el sistema no ha llegado a 
-# alcanzar el estado estacionario. En este caso, aumentar el valor de pasos de relajación.
-# Si la tasa de 'nacimientos' es mayor que la tasa de 'muertes', la inercia total no va a dejar de subir.
-plt.subplot(1, 3, 1)
-plt.plot(historial_inercia)
-plt.axvline(PASOS_RELAJACION, color='r', linestyle='--', label='Fin Relajación')
-plt.title("Momento de Inercia ")
-plt.legend()
-
-
-# Muestra masa por ud. de área. La mayor parte de la masa debería estar concentrada 
-# cerca del agujero (a la izquierda del gráfico) y luego decaer a medida que nos alejamos.
-# Si vemos un pico a la derecha, se debe a que cuando un sistema solar es absorbido, 
-# se inserta uno nuevo en la frontera con órbita circular, lo que genera una acumulación de sistemas solares en esa región.
-# Al 'nacer' con velocidad circular en ese radio, los sistemas tienden a quedarse orbitando cerca de donde nacieron.
-plt.subplot(1, 3, 2)
-plt.bar(bins[:-1], densidad_radial, width=np.diff(bins), align='edge')
-plt.title("Densidad de Masa Radial ")
-
-
-# Mapa de posiciones finales de los sistemas solares. Deberíamos ver una concentración de puntos
-#  cerca del centro (agujero negro) y luego una distribución más dispersa a medida que nos alejamos. 
-# Subplot 3: Mapa de posiciones con el Agujero Negro
-plt.subplot(1, 3, 3)
-plt.scatter(pos[:, 0], pos[:, 1], s=10, alpha=0.6, label='Sistemas Solares') 
-plt.title("Mapa de Posiciones Final")
-plt.xlabel("x")
-plt.ylabel("y")
-plt.legend()
-
-# Añadir el Flujo Medio como texto en la figura para que no se pierda
-info_texto = f"Flujo Medio de Masa: {flujo:.6f} M_sol/dt"
-plt.figtext(0.5, 0.01, info_texto, ha="center", fontsize=12, bbox={"facecolor":"orange", "alpha":0.2, "pad":5})
-
-plt.tight_layout()
-plt.show()
-
-print(f"Flujo medio de masa absorbida: {flujo:.4f} M_sol/unidad_tiempo ")
+if __name__ == "__main__":
+    main()
