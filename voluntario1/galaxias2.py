@@ -11,15 +11,15 @@ N_SISTEMAS = 80
 G = 1.0
 M_AGUJERO_NEGRO = 2000.0
 M_SISTEMA = 1.0
-R_COLISION = 0.06
-R_ABSORCION = 0.8
-R_FRONTERA = 8.0
-DIST_INTERACCION = 3.0
-DT = 0.005
-SOFTENING = 0.1
-PASOS_ESTABILIZACION = 10000
-PASOS_MEDICION = 10000
-COLA = 200
+R_COLISION = 0.06 # Radio de colisión
+R_ABSORCION = 0.8 # Radio de absorción
+R_FRONTERA = 8.0 # Radio de la frontera del sistema
+DIST_INTERACCION = 3.0 # Distancia de interacción
+DT = 0.005 # Paso de tiempo
+SOFTENING = 0.1 # Parámetro de suavizado
+PASOS_ESTABILIZACION = 10000 # Número de pasos para la fase de estabilización
+PASOS_MEDICION = 10000 # Número de pasos para la fase de medición
+COLA = 200 # Longitud de la cola para el historial de posiciones
 
 # =============================================================================
 # ACELERACIONES
