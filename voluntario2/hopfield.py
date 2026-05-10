@@ -4,7 +4,6 @@ from matplotlib.animation import FuncAnimation
 import os
 
 # --- CONFIGURACIÓN DE RUTA ---
-# Usamos r"" para evitar problemas con las backslashes de Windows
 PATH = r"C:\Users\Usuario\Desktop\2526_Computacional\voluntario2"
 if not os.path.exists(PATH): 
     os.makedirs(PATH)
@@ -19,157 +18,179 @@ class HopfieldNet:
         self.a = []
 
     def store_patterns(self, p_list):
-        # Construye la matriz de pesos sinápticos usando la regla de Hebb.
+        # Construye la matriz de pesos sinápticos usando la regla de Hebb[cite: 6, 13].
         self.patterns = [p.flatten() for p in p_list]
-        self.a = [np.mean(p) for p in self.patterns] 
+        self.a = [np.mean(p) for p in self.patterns] # a^mu: actividad media [cite: 13]
         self.w = np.zeros((self.num_neurons, self.num_neurons))
 
         # Optimización: Calculamos la matriz de pesos de una sola vez usando operaciones vectorizadas
-        # Nota: El producto exterior (outer) suma la correlación de cada par de neuronas para cada patrón.
+        # Nota: El producto exterior (outer) suma la correlación de cada par de neuronas para cada patrón[cite: 13].
         for mu in range(len(self.patterns)):
             p_c = self.patterns[mu] - self.a[mu]
             self.w += np.outer(p_c, p_c)
             
-        # Normalización y eliminación de autoconexiones
+        # Normalización y eliminación de autoconexiones [cite: 13, 15]
         self.w /= self.num_neurons
-        np.fill_diagonal(self.w, 0) # Autoconexiones prohibidas 
-        self.theta = 0.5 * np.sum(self.w, axis=1) # Umbral de disparo 
+        np.fill_diagonal(self.w, 0) # autoconexiones wij,ij = 0 [cite: 15] 
+        self.theta = 0.5 * np.sum(self.w, axis=1) # Umbral de disparo theta_ij [cite: 17] 
 
     def overlap(self, state, mu):
-        # Calcula cuánto se parece el estado actual (s) a un patrón almacenado (p)
+        # Calcula el solapamiento m^mu (fidelidad del recuerdo) [cite: 27]
         s = state.flatten()
         p = self.patterns[mu]
         a = self.a[mu]
         den = self.num_neurons * a * (1 - a)
-        # Si den es 0 (patrón uniforme), devolvemos 0 para evitar error
         if den == 0: return 0
         return np.sum((p - a) * (s - a)) / den 
 
     def metropolis_step(self, state, T):
-        # Realiza un paso de actualización de la red usando el criterio de Metrópolis
-        #  para aceptar o rechazar cambios. Si la energía disminuye, se acepta el cambio.
-        #  Si aumenta, se acepta con probabilidad exp(-delta_E/T).
+        # Dinámica de Metrópolis para minimizar el Hamiltoniano H[cite: 3, 37].
         s = state.flatten().astype(float)
         for _ in range(self.num_neurons):
             i = np.random.randint(0, self.num_neurons)
-            delta_s = 1.0 - 2.0 * s[i] # Cambio s -> 1-s 
+            delta_s = 1.0 - 2.0 * s[i] # Cambio de estado s: 0 <-> 1 [cite: 38]
             
-            # El campo local h_i es la influencia de todas las demás neuronas sobre la neurona i
+            # Campo local h_i: influencia de la red sobre la neurona i
             h_i = np.dot(self.w[i], s)
             
-            # delta_E representa la variación de energía del sistema si cambiamos la neurona i
-            delta_E = delta_s * (self.theta[i] - h_i) # Optimización 
+            # Variación de energía Delta H [cite: 34]
+            delta_E = delta_s * (self.theta[i] - h_i) 
             
-            # Criterio de Metrópolis 
+            # Criterio de Metrópolis [cite: 37] 
             if delta_E <= 0 or np.random.rand() < np.exp(-delta_E / T):
                 s[i] = 1.0 - s[i]
         return s.reshape((self.N, self.N))
 
-# --- GENERACIÓN DE RESULTADOS ---
+def obtener_diccionario_letras(N):
+    # Definimos plantillas 5x7 para las letras. 'X' es píxel activo, '.' es inactivo.
+    # Esto permite tener todo el abecedario de forma compacta.
+    plantillas = {
+        'A': ["..X..", ".X.X.", "X...X", "XXXXX", "X...X", "X...X", "X...X"],
+        'B': ["XXXX.", "X...X", "XXXX.", "X...X", "X...X", "XXXX.", "....."],
+        'C': [".XXXX", "X....", "X....", "X....", "X....", ".XXXX", "....."],
+        'D': ["XXXX.", "X...X", "X...X", "X...X", "X...X", "XXXX.", "....."],
+        'E': ["XXXXX", "X....", "XXXX.", "X....", "X....", "XXXXX", "....."],
+        'F': ["XXXXX", "X....", "XXXX.", "X....", "X....", "X....", "....."],
+        'G': [".XXXX", "X....", "X..XX", "X...X", "X...X", ".XXXX", "....."],
+        'H': ["X...X", "X...X", "XXXXX", "X...X", "X...X", "X...X", "....."],
+        'I': ["XXXXX", "..X..", "..X..", "..X..", "..X..", "XXXXX", "....."],
+        'J': ["..XXX", "...X.", "...X.", "...X.", "X..X.", ".XX..", "....."],
+        'K': ["X...X", "X..X.", "XXX..", "X..X.", "X...X", "X...X", "....."],
+        'L': ["X....", "X....", "X....", "X....", "X....", "XXXXX", "....."],
+        'M': ["X...X", "XX.XX", "X.X.X", "X...X", "X...X", "X...X", "....."],
+        'N': ["X...X", "XX..X", "X.X.X", "X..XX", "X...X", "X...X", "....."],
+        'O': [".XXX.", "X...X", "X...X", "X...X", "X...X", ".XXX.", "....."],
+        'P': ["XXXX.", "X...X", "XXXX.", "X....", "X....", "X....", "....."],
+        'Q': [".XXX.", "X...X", "X...X", "X.X.X", "X..X.", ".XX.X", "....."],
+        'R': ["XXXX.", "X...X", "XXXX.", "X.X..", "X..X.", "X...X", "....."],
+        'S': [".XXXX", "X....", ".XXX.", "....X", "XXXX.", ".....", "....."],
+        'T': ["XXXXX", "..X..", "..X..", "..X..", "..X..", "..X..", "....."],
+        'U': ["X...X", "X...X", "X...X", "X...X", "X...X", ".XXX.", "....."],
+        'V': ["X...X", "X...X", "X...X", "X...X", ".X.X.", "..X..", "....."],
+        'W': ["X...X", "X...X", "X...X", "X.X.X", "XX.XX", "X...X", "....."],
+        'X': ["X...X", ".X.X.", "..X..", ".X.X.", "X...X", "X...X", "....."],
+        'Y': ["X...X", ".X.X.", "..X..", "..X..", "..X..", "..X..", "....."],
+        'Z': ["XXXXX", "....X", "...X.", "..X..", ".X...", "XXXXX", "....."]
+    }
+    
+    diccionario = {}
+    for letra, lineas in plantillas.items():
+        # Convertimos la plantilla de texto a una matriz numérica
+        matriz_pequeña = np.array([[1 if c == 'X' else 0 for c in fila] for fila in lineas])
+        # Escalamos la matriz pequeña para que encaje en el tamaño N x N de la red [cite: 22]
+        diccionario[letra] = np.kron(matriz_pequeña, np.ones((N // 7 + 1, N // 5 + 1)))[:N, :N]
+    return diccionario
 
 def run_all_tasks():
-    # --- TAREA 1: ANIMACIÓN (N=30, T=1e-4)  ---
-    N1 = 50
     T_low = 1e-4
-    # Creamos un patrón visual (una cruz)
-    p_task1 = np.zeros((N1, N1))
-    p_task1[N1//2-2:N1//2+2, :] = 1
-    p_task1[:, N1//2-2:N1//2+2] = 1
-    
+
+    # --- TAREA 1: ANIMACIÓN (N=50) ---
+    print("Generando GIF de la Tarea 1...")
+    N1 = 50
+    p1 = np.zeros((N1, N1))
+    p1[N1//2-2:N1//2+2, :] = 1
+    p1[:, N1//2-2:N1//2+2] = 1 # Patrón en cruz [cite: 22]
     net1 = HopfieldNet(N1)
-    net1.store_patterns([p_task1])
-    
-    # Condición inicial aleatoria 
+    net1.store_patterns([p1])
     state = np.random.randint(0, 2, (N1, N1))
     
-    # Listas para almacenar la evolución del solapamiento y los fotogramas de la animación
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
     im = ax1.imshow(state, cmap='binary')
-    ax1.set_title("Evolución de la Red (N=30)")
-    
-    # Gráfica de solapamiento m(t)
     line, = ax2.plot([], [], 'r-')
     ax2.set_xlim(0, 20); ax2.set_ylim(-1.1, 1.1)
     ax2.set_title("Solapamiento m(t)")
     ax2.grid(True)
-    
-    m_history = []
+    m_hist = []
 
     def update(frame):
         nonlocal state
-        m = net1.overlap(state, 0)
-        m_history.append(m)
+        m_hist.append(net1.overlap(state, 0))
         im.set_data(state)
-        line.set_data(range(len(m_history)), m_history)
+        line.set_data(range(len(m_hist)), m_hist)
         state = net1.metropolis_step(state, T_low)
         return im, line
 
-    print("Generando GIF de la Tarea 1...")
-    ani = FuncAnimation(fig, update, frames=21, blit=True, repeat=False)
+    ani = FuncAnimation(fig, update, frames=21, blit=True)
     ani.save(os.path.join(PATH, "evolucion_hopfield.gif"), writer='pillow')
-    plt.close() # Cerramos para seguir con las otras tareas
+    plt.close()
 
-    # --- TAREA 2: TEMPERATURA ---
-    # Analizamos cómo afecta el "ruido termico" (temperatura) a la estabilida de la memoria.
-    print("Calculando Tarea 2: Solapamiento vs T...")
-    temps = np.linspace(0.001, 1, 30)
-    m_vs_t = []
-    for t in temps:
-        s_test = p_task1.copy()
-        # Dejamos que el sistema evolucione suficiente para alcanzar el equilibrio térmico
-        for _ in range(15): s_test = net1.metropolis_step(s_test, t)
-        m_vs_t.append(abs(net1.overlap(s_test, 0)))
+    # --- TAREA 3: INTERACCIÓN CON EL USUARIO (N=30) ---
+    print("\n--- INICIANDO TAREA 3 ---")
+    N3 = 30
+    dict_letras = obtener_diccionario_letras(N3)
     
-    plt.figure()
-    plt.plot(temps, m_vs_t, 'o-')
-    plt.title("Tarea 2: |m| vs Temperatura")
-    plt.xlabel("T"); plt.ylabel("|m|")
-    plt.grid()
-    plt.savefig(os.path.join(PATH, "tarea2_m_vs_T.png"))
+    while True:
+        entrada = input("Introduce 3 letras de la A a la Z (ej: ABC): ").upper()
+        if len(entrada) == 3 and all(c in dict_letras for c in entrada):
+            break
+        print("Entrada no válida. Por favor, introduce exactamente 3 letras.")
 
-    # --- TAREA 4: CAPACIDAD (N=20, T=1e-4)  ---
-    print("Calculando Tarea 4: Capacidad Crítica...")
-    N4 = 50
-    # Ampliamos el rango de P para asegurar que vemos el colapso (P_max > 0.15 * N^2)
-    P_vals = np.arange(1, 501, 20) 
+    letras_elegidas = [dict_letras[c] for c in entrada]
+    net3 = HopfieldNet(N3)
+    net3.store_patterns(letras_elegidas) # Almacenamos varios patrones a la vez 
+
+    # Partimos de la primera letra elegida deformada un 30% 
+    print(f"Simulando recuperación de la letra '{entrada[0]}'...")
+    s_test = letras_elegidas[0].copy()
+    ruido = np.random.rand(N3, N3) < 0.3
+    s_test[ruido] = 1 - s_test[ruido]
+
+    m_hist_3 = {i: [] for i in range(3)}
+    for _ in range(20):
+        for i in range(3):
+            m_hist_3[i].append(net3.overlap(s_test, i))
+        s_test = net3.metropolis_step(s_test, T_low)
+
+    plt.figure()
+    for i in range(3):
+        plt.plot(m_hist_3[i], label=f"Letra {entrada[i]}")
+    plt.title(f"Tarea 3: Evolución con letras {entrada}")
+    plt.xlabel("Pasos Monte Carlo"); plt.ylabel("Solapamiento m")
+    plt.legend(); plt.grid()
+    plt.savefig(os.path.join(PATH, "tarea3_letras_usuario.png"))
+    print(f"Gráfica guardada en {PATH}")
+
+    # --- TAREA 4: CAPACIDAD (N=20) ---
+    print("\nCalculando Tarea 4: Capacidad Crítica...")
+    N4 = 20
+    P_vals = np.arange(1, 101, 10) # Patrones aleatorios para estresar la red [cite: 31, 32]
     recuperados = []
     Pc = 0
-    
     for P in P_vals:
-        p_list = [(np.random.rand(N4, N4) > 0.5).astype(int) for _ in range(P)] 
+        p_list = [(np.random.rand(N4, N4) > 0.5).astype(int) for _ in range(P)]
         net4 = HopfieldNet(N4)
         net4.store_patterns(p_list)
-        
-        count = 0
-        for mu in range(P):
-            # Partimos del propio patrón para ver si es un mínimo estable
-            s_test = p_list[mu].copy()
-            for _ in range(10): s_test = net4.metropolis_step(s_test, T_low)
-            # Criterio del guion: se recuerda si m > 0.75
-            if net4.overlap(s_test, mu) > 0.75: 
-                count += 1
-        
+        count = sum(1 for mu in range(P) if net4.overlap(net4.metropolis_step(p_list[mu].copy(), T_low), mu) > 0.75)
         recuperados.append(count)
-        
-        # Guardamos el último P donde la red aún recuerda casi todo (ej. > 90%)
-        if count >= P * 0.9:
-            Pc = P
-    
-    # Cálculo de alpha_c (capacidad máxima relativa)
-    alpha_c = Pc / (N4 * N4)
-    
-    print(f"--- RESULTADOS TAREA 4 ---")
-    print(f"P crítico (Pc) detectado: {Pc}")
-    print(f"Capacidad crítica calculada: alpha_c = {alpha_c:.4f}")
-    print(f"--------------------------")
+        if count >= P * 0.9: Pc = P
+
+    alpha_c = Pc / (N4*N4) # alpha_c = Pc / N^2 
+    print(f"Resultado T4: alpha_c = {alpha_c:.4f}")
 
     plt.figure()
-    plt.plot(P_vals, recuperados, 's-', label="Patrones Recordados")
-    plt.plot(P_vals, P_vals, '--k', alpha=0.3, label="Límite Ideal (100%)")
-    plt.axvline(x=Pc, color='r', linestyle=':', label=f'Pc ≈ {Pc} (alpha_c={alpha_c:.3f})')
-    plt.title(f"Tarea 4: Capacidad de la Red (N={N4})")
-    plt.xlabel("Patrones Almacenados (P)")
-    plt.ylabel("Patrones Recordados")
+    plt.plot(P_vals, recuperados, 's-', label="Recordados")
+    plt.plot(P_vals, P_vals, '--k', alpha=0.3, label="Límite Ideal")
+    plt.axvline(x=Pc, color='r', label=f'Pc={Pc}')
     plt.legend(); plt.grid()
     plt.savefig(os.path.join(PATH, "tarea4_capacidad.png"))
 
