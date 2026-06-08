@@ -1,6 +1,8 @@
 # Física Computacional - Curso 2025/2026
 
 Repositorio con los códigos, datos y proyectos correspondientes a la asignatura de Física Computacional del Grado en Física (Universidad de Granada).
+Alumna perteneciente al Grupo Aretes
+
 
 ## Estructura del Repositorio
 
