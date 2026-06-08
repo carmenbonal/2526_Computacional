@@ -6,7 +6,7 @@ Alumna perteneciente al Grupo Aretes
 
 ## Estructura del Repositorio
 
-* `/codigos`: Soluciones a los ejercicios propuestos. Incluye implementaciones numéricas en Python y su correspondiente análisis en Jupyter Notebooks.
+* `/codigos`: Soluciones a los ejercicios obligatorios. Incluye implementaciones numéricas en Python y su correspondiente informe en Jupyter Notebooks.
 * `/fisicacomputacional`: Material de teoría y apuntes (copia del repositorio de la profesora).
 * `/voluntario1` y `/voluntario2`: Directorios con proyectos y trabajos adicionales desarrollados a lo largo del semestre.
 
